@@ -656,6 +656,18 @@ function fmtDate(d) {
   catch { return ''; }
 }
 
+function videoSrcEncoded(path) {
+  if (!path) return '';
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function videoMime(path) {
+  const p = (path || '').toLowerCase();
+  if (p.endsWith('.webm')) return 'video/webm';
+  if (p.endsWith('.mkv')) return 'video/x-matroska';
+  return 'video/mp4';
+}
+
 // ── Category Grid ──
 function renderCategories() {
   const grid = $('catGrid');
@@ -840,7 +852,9 @@ function openItem(id) {
   recordRecent(item.url);
 
   if (item.has_video) {
-    $('modalPlayer').innerHTML = `<video controls autoplay playsinline><source src="${item.video_path}" type="video/mp4"></video>`;
+    const vsrc = videoSrcEncoded(item.video_path);
+    const vmime = videoMime(item.video_path);
+    $('modalPlayer').innerHTML = `<video controls autoplay playsinline><source src="${vsrc}" type="${vmime}"></video>`;
   } else {
     $('modalPlayer').innerHTML = `
       <div class="no-video">
@@ -851,7 +865,11 @@ function openItem(id) {
   }
   $('modalTitle').textContent = item.text || '(no description)';
   $('modalAuthor').textContent = `@${item.handle} · ${fmtDate(item.date)}`;
-  $('modalLink').innerHTML = `<a href="${item.url}" target="_blank" rel="noopener">View on X ↗</a>`;
+  if (item.url && item.url.includes('bookmarks.local')) {
+    $('modalLink').innerHTML = '<span style="color:var(--text-dim);font-size:0.8rem">Local library video</span>';
+  } else {
+    $('modalLink').innerHTML = `<a href="${item.url}" target="_blank" rel="noopener">View on X ↗</a>`;
+  }
   syncModalFavButton();
   if (currentCat === '__recent__') renderItems();
   $('modal').classList.add('open');
