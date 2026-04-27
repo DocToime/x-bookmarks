@@ -785,9 +785,29 @@ function fmtDate(d) {
   catch { return ''; }
 }
 
+function appBasePath() {
+  let p = location.pathname;
+  if (p === '/' || p === '') return '/';
+  if (p.endsWith('/')) return p;
+  if (/\.(html?|[a-z0-9]+)$/i.test(p) && p.lastIndexOf('.') > p.lastIndexOf('/')) {
+    return p.replace(/\/[^/]*$/, '/');
+  }
+  return p + '/';
+}
+
+function assetUrl(relative) {
+  if (!relative) return '';
+  const enc = String(relative)
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
+  const base = appBasePath();
+  if (base === '/') return enc.startsWith('/') ? enc : '/' + enc;
+  return base + enc.replace(/^\//, '');
+}
+
 function videoSrcEncoded(path) {
-  if (!path) return '';
-  return path.split('/').map(encodeURIComponent).join('/');
+  return assetUrl(path);
 }
 
 function videoMime(path) {
@@ -795,6 +815,33 @@ function videoMime(path) {
   if (p.endsWith('.webm')) return 'video/webm';
   if (p.endsWith('.mkv')) return 'video/x-matroska';
   return 'video/mp4';
+}
+
+function localVideoPartPaths(item) {
+  if (!item || !item.has_video) return [];
+  if (Array.isArray(item.video_paths) && item.video_paths.length) {
+    return item.video_paths;
+  }
+  if (item.video_path) return [item.video_path];
+  return [];
+}
+
+function attachLocalVideoPartChain(video, item) {
+  if (!video) return;
+  const parts = localVideoPartPaths(item);
+  if (parts.length <= 1) return;
+  let partIdx = 0;
+  video.addEventListener('ended', function onPartEnded() {
+    partIdx += 1;
+    if (partIdx >= parts.length) return;
+    const rel = parts[partIdx];
+    const vsrc = videoSrcEncoded(rel);
+    const vmime = videoMime(rel);
+    video.innerHTML = `<source src="${vsrc}" type="${vmime}">`;
+    video.load();
+    const p = video.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  });
 }
 
 function pickRandomFrom(arr) {
@@ -901,9 +948,11 @@ function scheduleLuckyDipPreload() {
   const pre = $('luckyPreload');
   if (!pre) return;
   const { item } = pickLuckyDipItem();
-  if (item && item.video_path) {
+  const paths = item && item.video_path ? localVideoPartPaths(item) : [];
+  const first = paths[0];
+  if (first) {
     pre.preload = 'auto';
-    pre.src = videoSrcEncoded(item.video_path);
+    pre.src = videoSrcEncoded(first);
   } else {
     pre.removeAttribute('src');
   }
@@ -1172,9 +1221,14 @@ function openItem(id, options = {}) {
   }
 
   if (item.has_video) {
-    const vsrc = videoSrcEncoded(item.video_path);
-    const vmime = videoMime(item.video_path);
-    $('modalPlayer').innerHTML = `<video controls autoplay playsinline><source src="${vsrc}" type="${vmime}"></video>`;
+    const parts = localVideoPartPaths(item);
+    const firstPath = parts[0] || item.video_path;
+    const vsrc = videoSrcEncoded(firstPath);
+    const vmime = videoMime(firstPath);
+    $('modalPlayer').innerHTML = '<video controls autoplay playsinline></video>';
+    const vEl = $('modalPlayer').querySelector('video');
+    vEl.innerHTML = `<source src="${vsrc}" type="${vmime}">`;
+    attachLocalVideoPartChain(vEl, item);
   } else {
     $('modalPlayer').innerHTML = `
       <div class="no-video">
